@@ -1,64 +1,69 @@
 #include <iostream>
+#include <thread>
 #include <string>
 #include <cstring>
-#include <unistd.h>      // close(), sleep()
-#include <arpa/inet.h>   // sockaddr_in, inet_pton()
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
-constexpr char SERVER_IP[] = "127.0.0.1";
-constexpr int PORT = 8080;
-constexpr int BUFFER_SIZE = 1024;
+#define PORT 8080
+#define BUFFER_SIZE 1024
+
+void receiveMessages(int sock) {
+    char buffer[BUFFER_SIZE];
+    while (true) {
+        memset(buffer, 0, BUFFER_SIZE);
+        int bytes = recv(sock, buffer, BUFFER_SIZE - 1, 0);
+        if (bytes <= 0) {
+            std::cout << "Disconnected from server.\n";
+            close(sock);
+            exit(0);
+        }
+        std::cout << buffer;
+    }
+}
 
 int main() {
     int sock;
-    struct sockaddr_in server_addr{};
-    char buffer[BUFFER_SIZE];
+    struct sockaddr_in serv_addr{};
 
-    // 1. Create socket
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1) {
-        perror("socket failed");
-        return 1;
+    // Create socket
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Socket creation error");
+        return -1;
     }
 
-    // 2. Setup server address
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(PORT);
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(PORT);
 
-    if (inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr) <= 0) {
-        perror("invalid address");
-        return 1;
+    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
+        perror("Invalid address/Address not supported");
+        return -1;
     }
 
-    // 3. Connect
-    if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
-        perror("connection failed");
-        close(sock);
-        return 1;
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        perror("Connection Failed");
+        return -1;
     }
 
-    std::cout << "Connected to server " << SERVER_IP << ":" << PORT << "\n";
+    std::cout << "Connected to chat server!\n";
 
-    // 4. Periodic send loop
-    int counter = 1;
+    // Start receiver thread
+    std::thread receiver(receiveMessages, sock);
+    receiver.detach();
+
+    // Main input loop
+    std::string input;
     while (true) {
-        std::string message = "Message #" + std::to_string(counter++) + " from client\n";
-
-        if (write(sock, message.c_str(), message.size()) == -1) {
-            perror("write failed");
+        std::getline(std::cin, input);
+        if (input == "quit") {
+            std::cout << "Closing connection.\n";
+            close(sock);
             break;
         }
-        std::cout << "Sent: " << message;
-
-        int bytes_read = read(sock, buffer, BUFFER_SIZE - 1);
-        if (bytes_read > 0) {
-            buffer[bytes_read] = '\0';
-            std::cout << "Server replied: " << buffer;
-        }
-
-        sleep(2); // wait 2 seconds
+        send(sock, input.c_str(), input.size(), 0);
     }
 
-    close(sock);
     return 0;
 }
-

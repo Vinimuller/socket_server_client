@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Server",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/out/tcp_server",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Build Server"
+    },
+    {
+      "name": "Debug Client",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/out/tcp_client",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Build Client"
+    }
+  ]
+}

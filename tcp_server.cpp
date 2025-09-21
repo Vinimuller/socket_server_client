@@ -1,135 +1,197 @@
 #include <iostream>
 #include <string>
+#include <map>
+#include <vector>
+#include <sstream>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <cstring>
-#include <unistd.h>       // close()
-#include <arpa/inet.h>    // sockaddr_in, inet_ntoa()
-#include <netinet/in.h>   // INADDR_ANY
-#include <sys/select.h>   // select()
 
-constexpr int PORT = 8080;
-constexpr int BUFFER_SIZE = 1024;
+#define PORT 8080
+#define BUFFER_SIZE 1024
 
-struct client{
-    struct sockaddr_in *socket;
-    int fd;
-    std::string status;
+class Client {
+public:
+    std::string username;
+    std::string ip;
+    int port;
+
+    Client() = default;
+    Client(const std::string &u, const std::string &ipAddr, int p)
+        : username(u), ip(ipAddr), port(p) {}
 };
 
-int main() {
-    int server_fd, client_fd, max_fd;
-    struct sockaddr_in server_addr{}, client_addr{};
-    socklen_t client_len = sizeof(client_addr);
-    char buffer[BUFFER_SIZE];
+// Allowed users (username -> password)
+std::map<std::string, std::string> allowedUsers = {
+    {"marcio", "1234"},
+    {"paula", "abcd"},
+    {"vini", "pass"}
+};
 
-    std::string statusClientArr[10];
+// Connected clients (fd -> username)
+std::map<int, std::string> onlineClients;
+
+void sendToClient(int client_fd, const std::string &msg) {
+    send(client_fd, msg.c_str(), msg.size(), 0);
+}
+
+void broadcast(const std::string &msg, int exclude_fd = -1) {
+    for (auto &[fd, user] : onlineClients) {
+        if (fd != exclude_fd) {
+            sendToClient(fd, msg);
+        }
+    }
+}
+
+std::string getOnlineUsers() {
+    std::ostringstream oss;
+    oss << "Usuários online:\n";
+    for (auto &[fd, user] : onlineClients) {
+        oss << " - " << user << "\n";
+    }
+    return oss.str();
+}
+
+int main() {
+    int server_fd, new_socket;
+    struct sockaddr_in address{};
+    socklen_t addrlen = sizeof(address);
 
     fd_set master_set, read_fds;
+    int fd_max;
 
-    // 1. Create socket
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == -1) {
+    char buffer[BUFFER_SIZE];
+
+    // Create socket
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("socket failed");
-        return 1;
+        exit(EXIT_FAILURE);
     }
 
-    // 2. Allow reuse of address/port
-    int opt = 1;
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
-        perror("setsockopt failed");
-        close(server_fd);
-        return 1;
-    }
-
-    // 3. Bind
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(PORT);
-
-    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
+    // Bind
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         perror("bind failed");
-        close(server_fd);
-        return 1;
+        exit(EXIT_FAILURE);
     }
 
-    // 4. Listen
-    if (listen(server_fd, 5) == -1) {
-        perror("listen failed");
-        close(server_fd);
-        return 1;
+    // Listen
+    if (listen(server_fd, 10) < 0) {
+        perror("listen");
+        exit(EXIT_FAILURE);
     }
 
     FD_ZERO(&master_set);
     FD_SET(server_fd, &master_set);
-    max_fd = server_fd;
+    fd_max = server_fd;
 
-    std::cout << "Server listening on port " << PORT << "...\n";
+    std::cout << "Chat server running on port " << PORT << "...\n";
 
     while (true) {
         read_fds = master_set;
-
-        int activity = select(max_fd + 1, &read_fds, nullptr, nullptr, nullptr);
-        if (activity < 0) {
-            perror("select error");
-            break;
+        if (select(fd_max + 1, &read_fds, NULL, NULL, NULL) < 0) {
+            perror("select");
+            exit(EXIT_FAILURE);
         }
 
-        for (int fd = 0; fd <= max_fd; ++fd) {
+        for (int fd = 0; fd <= fd_max; fd++) {
             if (FD_ISSET(fd, &read_fds)) {
+                
                 if (fd == server_fd) {
                     // New connection
-                    client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
-                    if (client_fd == -1) {
-                        perror("accept failed");
+                    new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen);
+                    if (new_socket < 0) {
+                        perror("accept");
                         continue;
                     }
-                    FD_SET(client_fd, &master_set);
-                    if (client_fd > max_fd) max_fd = client_fd;
+                    FD_SET(new_socket, &master_set);
+                    if (new_socket > fd_max) fd_max = new_socket;
 
-                    std::cout << "New connection from "
-                              << inet_ntoa(client_addr.sin_addr)
-                              << ":" << ntohs(client_addr.sin_port) << "\n";
-                    
-                    statusClientArr[client_fd] = "authPending\n";
-                    
+                    sendToClient(new_socket, "[Server] Bem-vindo! Faça o login no formato: <USUÁRIO> <SENHA>\n");
+
                 } else {
-                    // Existing client sent data
-                    int bytes_read = read(fd, buffer, BUFFER_SIZE - 1);
-                    if (bytes_read <= 0) {
-                        std::cout << "Client on fd " << fd << " disconnected\n";
+                    // Handle client input
+                    memset(buffer, 0, BUFFER_SIZE);
+                    int bytes = recv(fd, buffer, BUFFER_SIZE - 1, 0);
+                    if (bytes <= 0) {
+                        // Client disconnected
+                        if (onlineClients.count(fd)) {
+                            std::cout << onlineClients[fd] << " desconectado.\n";
+                            broadcast("[Server] " + onlineClients[fd] + " deixou o chat.\n", fd);
+                            onlineClients.erase(fd);
+                        }
                         close(fd);
                         FD_CLR(fd, &master_set);
                     } else {
-
-                        std::cout << "Client " << fd << " is on status: " << statusClientArr[fd];
-
-                        if(statusClientArr[fd] == "authPending"){
-                            //Parse auth message
-                            //Auth message: <user>:<password>
-
-                            //response ok -> set status to online
-                            //response nok and close connection
-                        }else if(statusClientArr[fd] == "online"){
-                            //Accept working commands
-                            //command: get online List
-                            //--msg = cmd:getOnline
-                            //response online list: "user1;user2;user3;user4"
-
-                            //command: send messsage
-                            //--msg = cmd:sendMessage;to:<user>;msg:<message>
-                        }
-
-                        buffer[bytes_read] = '\0';
                         std::string msg(buffer);
-                        std::cout << "Client " << fd << " says: " << msg;
+                        msg.erase(msg.find_last_not_of("\r\n") + 1);
+                        
+                        // If fd is not on the list, its a pending authentication client
+                        if (!onlineClients.count(fd)) {
+                            // Authenticate
+                            //Use stream to parse data
+                            std::istringstream iss(msg);
+                            std::string username, password;
+                            iss >> username >> password;
 
-                        std::string response = "Echo: " + msg;
-                        write(fd, response.c_str(), response.size());
+                            //Check user and password
+                            if (allowedUsers.count(username) && allowedUsers[username] == password) {
+                                onlineClients[fd] = username;
+                                std::cout << username << " logou.\n";
+                                sendToClient(fd, "[Server] Login com sucesso!\n");
+                                broadcast("[Server] " + username + " entrou no chat.\n", fd);
+                            } else {
+                                sendToClient(fd, "[Server] Login falhou. Desconectando.\n");
+                                close(fd);
+                                FD_CLR(fd, &master_set);
+                            }
+                        } else {
+                            //Already authenticated: handle commands
+                            /*
+                            * Get online users command: "LIST"
+                            * Send Message command: "SEND <user> <message>"
+                            */
+                            //Use stream to parse command
+                            std::istringstream iss(msg);
+                            std::string command;
+                            iss >> command;
+
+                            if (command == "LIST") {
+                                sendToClient(fd, getOnlineUsers());
+                            } else if (command == "SEND") {
+                                std::string targetUser;
+                                iss >> targetUser;
+                                std::string text;
+                                std::getline(iss, text);
+                                //Removes leading space from msg
+                                if (!text.empty() && text[0] == ' ') text.erase(0,1);
+
+                                //Search for user on online list
+                                bool found = false;
+                                for (auto &[cfd, user] : onlineClients) {
+                                    if (user == targetUser) {
+                                        sendToClient(cfd, "[Chat de " + onlineClients[fd] + "]: " + text + "\n");
+                                        sendToClient(fd, "[Msg enviada para " + targetUser + "]: " + text + "\n");
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found) {
+                                    sendToClient(fd, "[Server] Usuário não encontrado ou não está online.\n");
+                                }
+                            } else {
+                                sendToClient(fd, "[Server] Comando não existe. Use LIST ou SEND.\n");
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    close(server_fd);
     return 0;
 }
