@@ -143,6 +143,7 @@ int main() {
                                 onlineClients[fd] = username;
                                 std::cout << username << " logou.\n";
                                 sendToClient(fd, "[Server] Login com sucesso!\n");
+                                sendToClient(fd, "[Server] Comandos disponíveis:\n- LIST              | Lista usuários ativos\n- SEND <user> <msg> | Envia mensagem para usuário\n");
                                 broadcast("[Server] " + username + " entrou no chat.\n", fd);
                             } else {
                                 sendToClient(fd, "[Server] Login falhou. Desconectando.\n");
