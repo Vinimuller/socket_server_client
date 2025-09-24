@@ -23,14 +23,14 @@ public:
         : username(u), ip(ipAddr), port(p) {}
 };
 
-// Allowed users (username -> password)
+// Usuários autorizados (username -> password)
 std::map<std::string, std::string> allowedUsers = {
     {"marcio", "1234"},
     {"paula", "abcd"},
     {"vini", "pass"}
 };
 
-// Connected clients (fd -> username)
+// Conectar clients (fd -> username)
 std::map<int, std::string> onlineClients;
 
 void sendToClient(int client_fd, const std::string &msg) {
@@ -89,7 +89,7 @@ int main() {
     FD_SET(server_fd, &master_set);
     fd_max = server_fd;
 
-    std::cout << "Chat server running on port " << PORT << "...\n";
+    std::cout << "Servidor de chat rodando na porta " << PORT << "...\n";
 
     while (true) {
         read_fds = master_set;
@@ -102,7 +102,7 @@ int main() {
             if (FD_ISSET(fd, &read_fds)) {
                 
                 if (fd == server_fd) {
-                    // New connection
+                    // Nova conexão
                     new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen);
                     if (new_socket < 0) {
                         perror("accept");
@@ -118,7 +118,7 @@ int main() {
                     memset(buffer, 0, BUFFER_SIZE);
                     int bytes = recv(fd, buffer, BUFFER_SIZE - 1, 0);
                     if (bytes <= 0) {
-                        // Client disconnected
+                        // Client desconectou
                         if (onlineClients.count(fd)) {
                             std::cout << onlineClients[fd] << " desconectado.\n";
                             broadcast("[Server] " + onlineClients[fd] + " deixou o chat.\n", fd);
@@ -130,20 +130,20 @@ int main() {
                         std::string msg(buffer);
                         msg.erase(msg.find_last_not_of("\r\n") + 1);
                         
-                        // If fd is not on the list, its a pending authentication client
+                        // If fd não está na lista, é um client de authentication pendente
                         if (!onlineClients.count(fd)) {
-                            // Authenticate
+                            // Autenticar
                             //Use stream to parse data
                             std::istringstream iss(msg);
                             std::string username, password;
                             iss >> username >> password;
 
-                            //Check user and password
+                            //Check user e password
                             if (allowedUsers.count(username) && allowedUsers[username] == password) {
                                 onlineClients[fd] = username;
                                 std::cout << username << " logou.\n";
                                 sendToClient(fd, "[Server] Login com sucesso!\n");
-                                sendToClient(fd, "[Server] Comandos disponíveis:\n- LIST              | Lista usuários ativos\n- SEND <user> <msg> | Envia mensagem para usuário\n");
+                                sendToClient(fd, "[Server] Comandos disponíveis:\n- LISTA              | Lista usuários ativos\n- ENVIAR <user> <msg> | Envia mensagem para usuário\n(Exemplo: ENVIAR vini Olá!)\nOs comandos LISTA e ENVIAR são case-sensitiv.\n");
                                 broadcast("[Server] " + username + " entrou no chat.\n", fd);
                             } else {
                                 sendToClient(fd, "[Server] Login falhou. Desconectando.\n");
@@ -151,19 +151,19 @@ int main() {
                                 FD_CLR(fd, &master_set);
                             }
                         } else {
-                            //Already authenticated: handle commands
+                            //Authenticated: handle commands
                             /*
-                            * Get online users command: "LIST"
-                            * Send Message command: "SEND <user> <message>"
+                            * Get online users command: "LISTA"
+                            * Send Message command: "ENVIAR <user> <message>"
                             */
                             //Use stream to parse command
                             std::istringstream iss(msg);
                             std::string command;
                             iss >> command;
 
-                            if (command == "LIST") {
+                            if (command == "LISTA") {
                                 sendToClient(fd, getOnlineUsers());
-                            } else if (command == "SEND") {
+                            } else if (command == "ENVIAR") {
                                 std::string targetUser;
                                 iss >> targetUser;
                                 std::string text;
@@ -171,12 +171,12 @@ int main() {
                                 //Removes leading space from msg
                                 if (!text.empty() && text[0] == ' ') text.erase(0,1);
 
-                                //Search for user on online list
+                                //Procurar usuários online
                                 bool found = false;
                                 for (auto &[cfd, user] : onlineClients) {
                                     if (user == targetUser) {
                                         sendToClient(cfd, "[Chat de " + onlineClients[fd] + "]: " + text + "\n");
-                                        sendToClient(fd, "[Msg enviada para " + targetUser + "]: " + text + "\n");
+                                        sendToClient(fd, "[Mensagem enviada para " + targetUser + "]: " + text + "\n");
                                         found = true;
                                         break;
                                     }
@@ -185,7 +185,7 @@ int main() {
                                     sendToClient(fd, "[Server] Usuário não encontrado ou não está online.\n");
                                 }
                             } else {
-                                sendToClient(fd, "[Server] Comando não existe. Use LIST ou SEND.\n");
+                                sendToClient(fd, "[Server] Comando não existe. Use LISTA ou ENVIAR.\n");
                             }
                         }
                     }
