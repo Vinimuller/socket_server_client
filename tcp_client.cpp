@@ -16,7 +16,7 @@ void receiveMessages(int sock) {
         memset(buffer, 0, BUFFER_SIZE);
         int bytes = recv(sock, buffer, BUFFER_SIZE - 1, 0);
         if (bytes <= 0) {
-            std::cout << "Disconnected from server.\n";
+            std::cout << "Disconectou do server.\n";
             close(sock);
             exit(0);
         }
@@ -28,9 +28,9 @@ int main() {
     int sock;
     struct sockaddr_in serv_addr{};
 
-    // Create socket
+    // Criar socket
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("Socket creation error");
+        perror("Erro ao criar socket");
         return -1;
     }
 
@@ -38,16 +38,16 @@ int main() {
     serv_addr.sin_port = htons(PORT);
 
     if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
-        perror("Invalid address/Address not supported");
+        perror("Endereço Inválido/Endereço não suportado");
         return -1;
     }
 
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        perror("Connection Failed");
+        perror("Conexão Falhou");
         return -1;
     }
 
-    std::cout << "Connected to chat server!\n";
+    std::cout << "Conectado ao server de chat!\n";
 
     // Start receiver thread
     std::thread receiver(receiveMessages, sock);
@@ -58,7 +58,7 @@ int main() {
     while (true) {
         std::getline(std::cin, input);
         if (input == "quit") {
-            std::cout << "Closing connection.\n";
+            std::cout << "Encerrando conexão.\n";
             close(sock);
             break;
         }
